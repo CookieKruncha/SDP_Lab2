@@ -381,6 +381,52 @@ export async function undoLastAction(): Promise<boolean> {
   return true;
 }
 
+export async function redoLastAction(): Promise<boolean> {
+  const db = getDb();
+  // Find the most recent undo_* or redo_* action to reverse
+  const last = db
+    .prepare(
+      `SELECT * FROM activity_log WHERE action LIKE 'undo_%' OR action LIKE 'redo_%' ORDER BY id DESC LIMIT 1`
+    )
+    .get() as ActivityEntry | undefined;
+
+  if (!last) return false;
+
+  const txn = db.transaction(() => {
+    if (last.action === "undo_created" || last.action === "redo_archived") {
+      // undo_created archived a task → redo = unarchive (re-create)
+      // redo_archived also archived → reverse = unarchive
+      db.prepare(
+        `UPDATE tasks SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?`
+      ).run(last.task_id);
+      logActivity(db, last.task_id, "redo_created", null, null, null);
+    } else if ((last.action === "undo_updated" || last.action === "redo_updated") && last.field) {
+      // Reverse the field change: apply new_value (which is what the original set it to)
+      db.prepare(
+        `UPDATE tasks SET ${last.field} = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(last.new_value ?? "", last.task_id);
+      logActivity(db, last.task_id, "redo_updated", last.field, last.old_value, last.new_value);
+    } else if (last.action === "undo_archived" || last.action === "redo_unarchived") {
+      // undo_archived unarchived → redo = re-archive
+      // redo_unarchived also unarchived → reverse = archive
+      db.prepare(
+        `UPDATE tasks SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+      ).run(last.task_id);
+      logActivity(db, last.task_id, "redo_archived", null, null, null);
+    } else if (last.action === "undo_unarchived" || last.action === "redo_created") {
+      // undo_unarchived re-archived → redo = unarchive
+      // redo_created unarchived → reverse = archive
+      db.prepare(
+        `UPDATE tasks SET archived_at = NULL, updated_at = datetime('now') WHERE id = ?`
+      ).run(last.task_id);
+      logActivity(db, last.task_id, "redo_unarchived", null, null, null);
+    }
+  });
+
+  txn();
+  return true;
+}
+
 // ─── Saved Views ──────────────────────────────────────────────────────────────
 
 export async function createSavedView(view: Omit<SavedView, "id" | "created_at">): Promise<SavedView> {
