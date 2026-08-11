@@ -27,7 +27,7 @@ export.md
 Thumbs.db
 
 # IDE
-.vscode/
+# .vscode/ — kept in repo so the IDE uses the workspace TypeScript
 .idea/
 
 # Debug
