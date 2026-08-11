@@ -13,10 +13,15 @@ import {
   createSavedView,
   deleteSavedView,
   undoLastAction,
+  redoLastAction,
   getActivityFeed,
+  getTaskHistory,
   getStats,
   listTags,
   createTag,
+  renameTag,
+  colorTag,
+  deleteTag,
   addTagToTask,
   removeTagFromTask,
   getTaskTags,
@@ -53,7 +58,7 @@ function statusColor(s: string) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-type View = "list" | "today" | "kanban" | "activity";
+type View = "list" | "today" | "kanban" | "activity" | "stats";
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -78,6 +83,11 @@ export default function Home() {
   const [stats, setStats] = useState<any>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [taskHistory, setTaskHistory] = useState<ActivityEntry[]>([]);
+  const [showHistoryId, setShowHistoryId] = useState<number | null>(null);
+  const [editingTagId, setEditingTagId] = useState<number | null>(null);
+  const [editTagName, setEditTagName] = useState("");
+  const [editTagColor, setEditTagColor] = useState("#6366f1");
 
   // New task form
   const [newTitle, setNewTitle] = useState("");
@@ -184,7 +194,15 @@ export default function Home() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        undoLastAction().then(() => refreshTasks());
+        undoLastAction().then(() => { refreshTasks(); getActivityFeed(100).then(setActivityFeed); });
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && e.shiftKey) {
+        e.preventDefault();
+        redoLastAction().then(() => { refreshTasks(); getActivityFeed(100).then(setActivityFeed); });
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "y") {
+        e.preventDefault();
+        redoLastAction().then(() => { refreshTasks(); getActivityFeed(100).then(setActivityFeed); });
       }
     };
     window.addEventListener("keydown", handler);
@@ -310,6 +328,26 @@ export default function Home() {
     setNewTagColor("#6366f1");
   }
 
+  async function handleRenameTag() {
+    if (editingTagId === null || !editTagName.trim()) return;
+    await renameTag(editingTagId, editTagName.trim());
+    if (editTagColor !== "") await colorTag(editingTagId, editTagColor);
+    setEditingTagId(null);
+    listTags().then(setTags);
+  }
+
+  async function handleDeleteTag(id: number) {
+    await deleteTag(id);
+    setSelectedTagIds((prev: number[]) => prev.filter((tid: number) => tid !== id));
+    listTags().then(setTags);
+  }
+
+  async function loadTaskHistory(taskId: number) {
+    const history = await getTaskHistory(taskId);
+    setTaskHistory(history);
+    setShowHistoryId(taskId);
+  }
+
   function toggleTheme() {
     const next = theme === "light" ? "dark" : "light";
     setTheme(next);
@@ -343,7 +381,8 @@ export default function Home() {
             else if (action === "kanban") setView("kanban");
             else if (action === "activity") setView("activity");
             else if (action === "create") setShowCreateForm(true);
-            else if (action === "undo") undoLastAction().then(() => refreshTasks());
+            else if (action === "undo") undoLastAction().then(() => { refreshTasks(); getActivityFeed(100).then(setActivityFeed); });
+            else if (action === "redo") redoLastAction().then(() => { refreshTasks(); getActivityFeed(100).then(setActivityFeed); });
           }}
           onTaskSelect={(taskId) => {
             setShowCommandPalette(false);
@@ -358,7 +397,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-xl font-bold">Todo App</h1>
           <nav className="flex gap-1">
-            {(["list", "today", "kanban", "activity"] as View[]).map((v) => (
+            {(["list", "today", "kanban", "activity", "stats"] as View[]).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -372,7 +411,7 @@ export default function Home() {
                   color: view === v ? "white" : "var(--fg)",
                 }}
               >
-                {v.charAt(0).toUpperCase() + v.slice(1)}
+                {v === "stats" ? "Stats" : v.charAt(0).toUpperCase() + v.slice(1)}
               </button>
             ))}
           </nav>
@@ -439,19 +478,58 @@ export default function Home() {
             )}
             <div className="space-y-1">
               {tags.map((tag) => (
-                <label key={tag.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedTagIds.includes(tag.id)}
-                    onChange={() => {
-                      setSelectedTagIds((prev) =>
-                        prev.includes(tag.id) ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                      );
-                    }}
-                  />
-                  <span className="w-3 h-3 rounded-full" style={{ background: tag.color }} />
-                  <span>{tag.name}</span>
-                </label>
+                <div key={tag.id} className="group">
+                  {editingTagId === tag.id ? (
+                    <div className="space-y-1 p-1 rounded" style={{ background: "var(--bg)" }}>
+                      <input
+                        value={editTagName}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTagName(e.target.value)}
+                        className="w-full px-2 py-0.5 rounded text-xs border"
+                        style={{ background: "var(--bg)", borderColor: "var(--border)", color: "var(--fg)" }}
+                        autoFocus
+                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="color"
+                          value={editTagColor}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTagColor(e.target.value)}
+                          className="w-6 h-5 rounded cursor-pointer"
+                        />
+                        <button onClick={handleRenameTag} className="text-xs px-1.5 py-0.5 rounded text-white" style={{ background: "var(--accent)" }}>Save</button>
+                        <button onClick={() => setEditingTagId(null)} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--border)" }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm">
+                      <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedTagIds.includes(tag.id)}
+                          onChange={() => {
+                            setSelectedTagIds((prev: number[]) =>
+                              prev.includes(tag.id) ? prev.filter((id: number) => id !== tag.id) : [...prev, tag.id]
+                            );
+                          }}
+                        />
+                        <span className="w-3 h-3 rounded-full" style={{ background: tag.color }} />
+                        <span>{tag.name}</span>
+                      </label>
+                      <div className="hidden group-hover:flex gap-0.5">
+                        <button
+                          onClick={() => { setEditingTagId(tag.id); setEditTagName(tag.name); setEditTagColor(tag.color); }}
+                          className="text-xs px-1 rounded opacity-60 hover:opacity-100"
+                          style={{ color: "var(--accent)" }}
+                          title="Edit tag"
+                        >✎</button>
+                        <button
+                          onClick={() => handleDeleteTag(tag.id)}
+                          className="text-xs px-1 rounded opacity-60 hover:opacity-100 text-red-500"
+                          title="Delete tag"
+                        >×</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -663,6 +741,46 @@ export default function Home() {
             </div>
           )}
 
+          {/* Statistics view */}
+          {view === "stats" && stats && (
+            <StatsView stats={stats} activityFeed={activityFeed} />
+          )}
+
+          {/* Task History Modal */}
+          {showHistoryId !== null && (
+            <div className="fixed inset-0 z-40 flex items-center justify-center" onClick={() => setShowHistoryId(null)}>
+              <div className="absolute inset-0 bg-black/40" />
+              <div
+                className="relative w-full max-w-lg max-h-96 overflow-y-auto rounded-xl p-4 shadow-2xl"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold">Task History</h3>
+                  <button onClick={() => setShowHistoryId(null)} className="text-sm px-2 py-1 rounded" style={{ background: "var(--border)" }}>Close</button>
+                </div>
+                <div className="space-y-2">
+                  {taskHistory.length === 0 && <p className="text-sm" style={{ color: "var(--muted)" }}>No history for this task.</p>}
+                  {taskHistory.map((entry) => (
+                    <div key={entry.id} className="text-sm p-2 rounded" style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium" style={{ color: "var(--accent)" }}>{entry.action}</span>
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>{new Date(entry.created_at).toLocaleString()}</span>
+                      </div>
+                      {entry.field && (
+                        <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+                          <span className="font-medium">{entry.field}</span>
+                          {entry.old_value && <span>: &quot;{entry.old_value}&quot;</span>}
+                          {entry.new_value && <span> → &quot;{entry.new_value}&quot;</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Kanban view */}
           {view === "kanban" && (
             <div className="grid grid-cols-3 gap-4">
@@ -756,6 +874,7 @@ export default function Home() {
                       onArchive={() => handleArchive(task.id)}
                       onUnarchive={() => handleUnarchive(task.id)}
                       onStatusChange={(s) => handleStatusChange(task.id, s)}
+                      onViewHistory={() => loadTaskHistory(task.id)}
                     />
                   ))}
                 </div>
@@ -809,6 +928,7 @@ export default function Home() {
                     onArchive={() => handleArchive(task.id)}
                     onUnarchive={() => handleUnarchive(task.id)}
                     onStatusChange={(s) => handleStatusChange(task.id, s)}
+                    onViewHistory={() => loadTaskHistory(task.id)}
                   />
                 ))}
               </div>
@@ -854,6 +974,7 @@ interface TaskRowProps {
   onArchive: () => void;
   onUnarchive: () => void;
   onStatusChange: (status: string) => void;
+  onViewHistory: () => void;
 }
 
 function TaskRow({
@@ -880,6 +1001,7 @@ function TaskRow({
   onArchive,
   onUnarchive,
   onStatusChange,
+  onViewHistory,
 }: TaskRowProps) {
   if (isEditing) {
     return (
@@ -1044,6 +1166,9 @@ function TaskRow({
               Archive
             </button>
           )}
+          <button onClick={onViewHistory} className="text-xs px-2 py-1 rounded" style={{ background: "var(--border)" }} title="View history">
+            📜
+          </button>
         </div>
       </div>
     </div>
@@ -1070,6 +1195,7 @@ function CommandPalette({ tasks, onClose, onSelect, onTaskSelect }: CommandPalet
     { id: "kanban", label: "Switch to Kanban board", shortcut: "" },
     { id: "activity", label: "View Activity log", shortcut: "" },
     { id: "undo", label: "Undo last action", shortcut: "Ctrl+Z" },
+    { id: "redo", label: "Redo last action", shortcut: "Ctrl+Shift+Z" },
   ];
 
   const filtered = [
@@ -1159,6 +1285,186 @@ function CommandPalette({ tasks, onClose, onSelect, onTaskSelect }: CommandPalet
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Statistics View Component ─────────────────────────────────────────────────
+
+interface StatsViewProps {
+  stats: {
+    total: number;
+    completed: number;
+    overdue: number;
+    inProgress: number;
+    byTopic: { topic: string; count: number; completed: number }[];
+    recentActivity: { day: string; count: number }[];
+  };
+  activityFeed: ActivityEntry[];
+}
+
+function StatsView({ stats, activityFeed }: StatsViewProps) {
+  // Calculate streaks from completion events
+  const completions = activityFeed
+    .filter((e) => e.action === "updated" && e.field === "status" && e.new_value === "Complete")
+    .map((e) => e.created_at.split("T")[0]);
+  const uniqueDays = Array.from(new Set(completions)).sort().reverse();
+
+  let currentStreak = 0;
+  let longestStreak = 0;
+  if (uniqueDays.length > 0) {
+    const today = new Date().toISOString().split("T")[0];
+    let streak = 0;
+    let prev: Date | null = null;
+    for (const d of uniqueDays) {
+      const date = new Date(d + "T00:00:00");
+      if (prev === null) {
+        const diff = Math.round((new Date(today + "T00:00:00").getTime() - date.getTime()) / 86400000);
+        if (diff <= 1) streak = 1;
+        else break;
+      } else {
+        const diff = Math.round((prev.getTime() - date.getTime()) / 86400000);
+        if (diff === 1) streak++;
+        else break;
+      }
+      prev = date;
+    }
+    currentStreak = streak;
+    // Longest streak from sorted days
+    let ls = 1;
+    for (let i = 1; i < uniqueDays.length; i++) {
+      const d1 = new Date(uniqueDays[i - 1] + "T00:00:00");
+      const d2 = new Date(uniqueDays[i] + "T00:00:00");
+      if (Math.round((d1.getTime() - d2.getTime()) / 86400000) === 1) ls++;
+      else { longestStreak = Math.max(longestStreak, ls); ls = 1; }
+    }
+    longestStreak = Math.max(longestStreak, ls, currentStreak);
+  }
+
+  // Heatmap data (last 30 days)
+  const heatmapDays: { day: string; count: number; label: string }[] = [];
+  const activityByDay = new Map(stats.recentActivity.map((r) => [r.day, r.count]));
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split("T")[0];
+    const count = activityByDay.get(key) ?? 0;
+    heatmapDays.push({ day: key, count, label: d.toLocaleDateString("en-ZA", { month: "short", day: "numeric" }) });
+  }
+  const maxActivity = Math.max(...heatmapDays.map((d) => d.count), 1);
+
+  // Bar chart (last 14 days)
+  const chartDays = heatmapDays.slice(-14);
+  const maxChart = Math.max(...chartDays.map((d) => d.count), 1);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-lg font-semibold">Statistics</h2>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: "Total", value: stats.total, color: "var(--fg)" },
+          { label: "Completed", value: stats.completed, color: "var(--success, #10b981)" },
+          { label: "In Progress", value: stats.inProgress, color: "var(--accent, #6366f1)" },
+          { label: "Overdue", value: stats.overdue, color: "var(--overdue, #ef4444)" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-lg p-4 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
+            <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Streaks */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-sm font-semibold mb-1">Current Streak</div>
+          <div className="text-3xl font-bold" style={{ color: "var(--accent)" }}>{currentStreak} <span className="text-sm font-normal" style={{ color: "var(--muted)" }}>days</span></div>
+        </div>
+        <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-sm font-semibold mb-1">Longest Streak</div>
+          <div className="text-3xl font-bold" style={{ color: "var(--success, #10b981)" }}>{longestStreak} <span className="text-sm font-normal" style={{ color: "var(--muted)" }}>days</span></div>
+        </div>
+      </div>
+
+      {/* Activity bar chart (14 days) */}
+      <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <h3 className="font-semibold text-sm mb-3">Activity (last 14 days)</h3>
+        <div className="flex items-end gap-1 h-24">
+          {chartDays.map((d) => (
+            <div key={d.day} className="flex-1 flex flex-col items-center justify-end h-full">
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: `${(d.count / maxChart) * 100}%`,
+                  minHeight: d.count > 0 ? "4px" : "0",
+                  background: "var(--accent)",
+                  opacity: 0.8,
+                }}
+                title={`${d.label}: ${d.count} actions`}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-1 mt-1">
+          {chartDays.map((d) => (
+            <div key={d.day} className="flex-1 text-center" style={{ color: "var(--muted)", fontSize: "9px" }}>
+              {new Date(d.day + "T00:00:00").getDate()}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Heatmap (30 days) */}
+      <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+        <h3 className="font-semibold text-sm mb-3">Activity Heatmap (30 days)</h3>
+        <div className="flex flex-wrap gap-1">
+          {heatmapDays.map((d) => (
+            <div
+              key={d.day}
+              className="w-6 h-6 rounded flex items-center justify-center"
+              style={{
+                background: d.count === 0 ? "var(--bg)" : `rgba(99, 102, 241, ${Math.max(0.15, d.count / maxActivity)})`,
+                color: d.count > 0 ? "white" : "var(--muted)",
+                border: "1px solid var(--border)",
+                fontSize: "10px",
+              }}
+              title={`${d.label}: ${d.count} actions`}
+            >
+              {d.count > 0 ? d.count : ""}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Topic breakdown */}
+      {stats.byTopic.length > 0 && (
+        <div className="rounded-lg p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="font-semibold text-sm mb-3">By Topic</h3>
+          <div className="space-y-2">
+            {stats.byTopic.map((t) => {
+              const pct = t.count > 0 ? Math.round((t.completed / t.count) * 100) : 0;
+              return (
+                <div key={t.topic} className="flex items-center gap-3 text-sm">
+                  <span className="w-28 truncate font-medium">{t.topic}</span>
+                  <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--success, #10b981)" }} />
+                  </div>
+                  <span className="text-xs w-20 text-right" style={{ color: "var(--muted)" }}>{t.completed}/{t.count} ({pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {stats.total === 0 && (
+        <div className="text-center py-8 rounded-lg" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <p className="font-medium">No data yet</p>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Create and complete tasks to see statistics.</p>
+        </div>
+      )}
     </div>
   );
 }
