@@ -34,6 +34,29 @@ The app opens at [http://localhost:3000](http://localhost:3000).
 | `npm run export-data -- --format=md` | Export tasks as Markdown |
 | `npm run import-data -- --file=export.json` | Import from a JSON export |
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+K` / `Cmd+K` | Open command palette |
+| `Ctrl+Z` | Undo last action |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo last undone action |
+
+## Features
+
+- **Core**: Create, edit, archive tasks with Title, Description, Due Date, Topic. Sort by topic/status/due date. Overdue derived (never stored). Three fixed statuses.
+- **Views**: List, Today (overdue first), Kanban board (drag between columns), Activity log, Statistics (charts, heatmap, streaks).
+- **Tags**: Create, rename, recolor, delete. Many-to-many with proper join table. Filter by intersection.
+- **Search**: Full-text search via SQLite FTS5 with highlighted snippets.
+- **Command palette**: Ctrl+K fuzzy-matches commands and tasks.
+- **Undo/Redo**: Reconstructed from activity log, survives restart.
+- **Task history**: Per-task changelog showing field, old/new values, timestamps.
+- **Saved views**: Persisted filter/sort/view combinations in SQLite.
+- **Dark mode & density**: System preference + user override, persisted in SQLite.
+- **Import/Export**: JSON, CSV, Markdown with round-trip safety and rejection reporting.
+- **Seed script**: 500 realistic tasks with spread of dates, topics, statuses.
+- **Test suite**: 31 behaviour tests against throwaway SQLite databases.
+
 ## Third-Party Code
 
 | Package | Why |
