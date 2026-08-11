@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --card: #f9fafb;
+  --accent: #3b82f6;
+  --danger: #ef4444;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --overdue: #dc2626;
+  --surface: #ffffff;
+}
+
+.dark {
+  --bg: #0f172a;
+  --fg: #f1f5f9;
+  --muted: #94a3b8;
+  --border: #334155;
+  --card: #1e293b;
+  --accent: #60a5fa;
+  --danger: #f87171;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --overdue: #f87171;
+  --surface: #1e293b;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+.density-compact .task-card { padding: 0.5rem 0.75rem; }
+.density-compact .task-card h3 { font-size: 0.875rem; }
+.density-comfortable .task-card { padding: 1rem 1.25rem; }
